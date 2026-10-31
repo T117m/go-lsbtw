@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	nlink_width, owner_width, group_width, fsize_width, modtime_width int
+	nlink_width, owner_width, group_width, fsize_width, mtime_width int
 
 	modes = map[uint32]rune{
 		syscall.S_IFDIR:  'd',
@@ -90,38 +90,35 @@ func mode_string(mode uint32) string {
 
 func set_widths(dir string, names []string) {
 	for _, name := range names {
-		_, nlink, owner, group, size, modtime := get_long_info(dir, name)
+		_, nlink, owner, group, size, mtime := get_long_info(dir, &name)
 		nlink_width = max(nlink_width, len(strconv.Itoa(int(nlink))))
 		owner_width = max(owner_width, len(owner))
 		group_width = max(group_width, len(group))
 		fsize_width = max(fsize_width, len(strconv.Itoa(int(size))))
-		modtime_width = max(modtime_width, len(modtime))
+		mtime_width = max(mtime_width, len(mtime))
 	}
 }
 
 func print_long(dir, name string) {
-	modestr, nlink, owner, group, size, modtime := get_long_info(dir, name)
+	modestr, nlink, owner, group, size, mtime := get_long_info(dir, &name)
 
-	fmt.Printf("%s %[2]*d %[4]*s %[6]*s %[8]*d %[10]*s %s\n",
+	fmt.Printf("%s %*d %*s %*s %*d %*s %s\n",
 		modestr,
-		nlink_width, // [2]
-		nlink,
-		owner_width, // [4]
-		owner,
-		group_width, // [6]
-		group,
-		fsize_width, // [8]
-		size,
-		modtime_width, // [10]
-		modtime,
+		nlink_width, nlink,
+		owner_width, owner,
+		group_width, group,
+		fsize_width, size,
+		mtime_width, mtime,
 		name,
 	)
 }
 
-func get_long_info(dir, name string) (modestr string, nlink uint64, owner, group string, size int64, modtime string) {
-	file_info, error := os.Lstat(filepath.Join(dir, name))
+func get_long_info(dir string, name *string) (modestr string, nlink uint64, owner, group string, size int64, mtime string) {
+	fullpath := filepath.Join(dir, *name)
+
+	file_info, error := os.Lstat(fullpath)
 	if error != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", name, error)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", *name, error)
 		return
 	}
 	file_stats := file_info.Sys().(*syscall.Stat_t)
@@ -131,6 +128,13 @@ func get_long_info(dir, name string) (modestr string, nlink uint64, owner, group
 	}
 	if g, error := user.LookupGroupId(strconv.Itoa(int(file_stats.Gid))); error == nil {
 		group = g.Name
+	}
+
+	if file_stats.Mode&syscall.S_IFMT == syscall.S_IFLNK {
+		target, err := os.Readlink(fullpath)
+		if err == nil {
+			*name += " -> " + target
+		}
 	}
 
 	return mode_string(file_stats.Mode), file_stats.Nlink, owner, group, file_info.Size(), file_info.ModTime().Format("Jan _2 15:04")
