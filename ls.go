@@ -10,6 +10,8 @@ import (
 	"syscall"
 )
 
+var nlink_width, owner_width, group_width, fsize_width, modtime_width int
+
 func main() {
 	path := "."
 	show_all, long_format := false, false
@@ -52,10 +54,13 @@ func main() {
 		names = append(names, entry.Name())
 	}
 
-	for _, name := range names {
-		if long_format {
+	if long_format {
+		set_widths(path, names)
+		for _, name := range names {
 			print_long(path, name)
-		} else {
+		}
+	} else {
+		for _, name := range names {
 			fmt.Println(name)
 		}
 	}
@@ -83,27 +88,50 @@ func mode_string(mode uint32) string {
 
 }
 
+func set_widths(dir string, names []string) {
+	for _, name := range names {
+		_, nlink, owner, group, size, modtime := get_long_info(dir, name)
+		nlink_width = max(nlink_width, len(strconv.Itoa(int(nlink))))
+		owner_width = max(owner_width, len(owner))
+		group_width = max(group_width, len(group))
+		fsize_width = max(fsize_width, len(strconv.Itoa(int(size))))
+		modtime_width = max(modtime_width, len(modtime))
+	}
+}
+
 func print_long(dir, name string) {
+	modestr, nlink, owner, group, size, modtime := get_long_info(dir, name)
+
+	fmt.Printf("%s %[2]*d %[4]*s %[6]*s %[8]*d %[10]*s %s\n",
+		modestr,
+		nlink_width, // [2]
+		nlink,
+		owner_width, // [4]
+		owner,
+		group_width, // [6]
+		group,
+		fsize_width, // [8]
+		size,
+		modtime_width, // [10]
+		modtime,
+		name,
+	)
+}
+
+func get_long_info(dir, name string) (modestr string, nlink uint64, owner, group string, size int64, modtime string) {
 	file_info, error := os.Lstat(filepath.Join(dir, name))
 	if error != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", name, error)
 		return
 	}
 	file_stats := file_info.Sys().(*syscall.Stat_t)
-	owner, group := "?", "?"
+	owner, group = "?", "?"
 	if u, error := user.LookupId(strconv.Itoa(int(file_stats.Uid))); error == nil {
 		owner = u.Username
 	}
 	if g, error := user.LookupGroupId(strconv.Itoa(int(file_stats.Gid))); error == nil {
 		group = g.Name
 	}
-	fmt.Printf("%s %d %s %s %d %s %s\n",
-		mode_string(file_stats.Mode),
-		file_stats.Nlink,
-		owner,
-		group,
-		file_info.Size(),
-		file_info.ModTime().Format("Jan _2 15:04"),
-		name,
-	)
+
+	return mode_string(file_stats.Mode), file_stats.Nlink, owner, group, file_info.Size(), file_info.ModTime().Format("Jan _2 15:04")
 }
